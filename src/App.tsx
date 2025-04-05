@@ -18,8 +18,9 @@ function App() {
     }
   ]);
   const [inputMessage, setInputMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
 
@@ -30,15 +31,59 @@ function App() {
       timestamp: new Date()
     };
 
-    const assistantResponse: Message = {
-      id: messages.length + 2,
-      text: "Estou processando sua mensagem com base nos princípios kardecistas. Em breve trarei uma resposta fundamentada na doutrina espírita.",
-      sender: 'assistant',
-      timestamp: new Date()
-    };
-
-    setMessages([...messages, userMessage, assistantResponse]);
+    setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
+    setLoading(true);
+
+    try {
+      const systemPrompt = {
+        role: 'system',
+        content: `Você é um assistente virtual inspirado na codificação kardecista e nas obras espíritas. Sua missão é oferecer conselhos baseados nos princípios da doutrina espírita, com compaixão, clareza e respeito. Evite qualquer tom dogmático e incentive a reflexão. Use linguagem simples, acolhedora e evite impor crenças. Quando apropriado, faça referência a obras como 'O Livro dos Espíritos' ou 'O Evangelho Segundo o Espiritismo'.`
+      };
+
+      const chatMessages = [
+        systemPrompt,
+        ...[...messages, userMessage].map(msg => ({
+          role: msg.sender === 'user' ? 'user' : 'assistant',
+          content: msg.text
+        }))
+      ];
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-3.5-turbo',
+          messages: chatMessages,
+          temperature: 0.7
+        })
+      });
+
+      const data = await response.json();
+      const assistantReply = data.choices?.[0]?.message?.content || 'Desculpe, algo deu errado.';
+
+      const assistantMessage: Message = {
+        id: userMessage.id + 1,
+        text: assistantReply,
+        sender: 'assistant',
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (err) {
+      console.error('Erro ao chamar OpenAI:', err);
+      setMessages(prev => [...prev, {
+        id: prev.length + 1,
+        text: 'Houve um erro ao buscar a resposta espiritual. Tente novamente mais tarde.',
+        sender: 'assistant',
+        timestamp: new Date()
+      }]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -92,10 +137,11 @@ function App() {
             />
             <button
               type="submit"
+              disabled={loading}
               className="bg-purple-600 text-white rounded-lg px-4 py-2 hover:bg-purple-700 transition-colors flex items-center gap-2"
             >
               <Send className="w-4 h-4" />
-              Enviar
+              {loading ? 'Enviando...' : 'Enviar'}
             </button>
           </div>
         </form>
